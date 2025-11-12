@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>CW Mackie — Work Order & PM (Editable - Plant Filter)</title>
+<style>
+  :root{--bg:#f7fafc;--card:#ffffff;--muted:#64748b;--accent:#0ea5a4;}
+  body{font-family:Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; margin:18px; background:var(--bg); color:#0f172a;}
+  .container{max-width:1200px;margin:0 auto;}
+  header{display:flex;align-items:center;gap:12px;margin-bottom:14px;}
+  h1{font-size:18px;margin:0;}
+  .controls-top{display:flex;gap:8px;align-items:center;width:100%;margin-bottom:8px;}
+  select, input[type="text"]{padding:8px;border-radius:8px;border:1px solid #e6eef7;background:#fff;}
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;}
+  .tab{padding:8px 12px;background:var(--card);border:1px solid #e2e8f0;border-radius:8px;cursor:pointer;box-shadow:0 1px 0 rgba(2,6,23,0.04);}
+  .tab.active{background:var(--accent);color:white;border-color:transparent;box-shadow:0 6px 18px rgba(14,165,164,0.12);}
+  .sheet{background:var(--card);padding:12px;border-radius:10px;border:1px solid #e6eef7;box-shadow:0 6px 24px rgba(2,6,23,0.04);margin-bottom:20px;}
+  table{width:100%;border-collapse:collapse;margin-top:8px;}
+  th,td{padding:8px 10px;border:1px solid #e6eef7;text-align:left;font-size:13px;vertical-align:top;}
+  th{background:#f1f5f9;font-weight:700;position:sticky;top:0;z-index:1;}
+  td[contenteditable]{background:#fff7ed;}
+  .toolbar{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;}
+  .btn{padding:8px 10px;border-radius:7px;border:1px solid #e2e8f0;background:var(--card);cursor:pointer;}
+  .btn.primary{background:var(--accent);color:white;border-color:transparent;}
+  .small{font-size:13px;color:var(--muted);}
+  .flex-right{margin-left:auto;display:flex;gap:8px;}
+  .danger{background:#fee2e2;border-color:#fecaca;}
+  @media (max-width:900px){ .tab{padding:6px 8px;font-size:13px;} th,td{font-size:12px;} }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>CW Mackie — Work Order & Preventive Maintenance (Plant Filter)</h1>
+    <div class="flex-right small" style="margin-left:auto">Storage: <span id="storage-info">—</span></div>
+  </header>
+
+  <div class="controls-top">
+    <label class="small">Plant:</label>
+    <select id="plant-select"></select>
+    <div style="margin-left:auto" class="small">Tip: choose a plant to filter all tables. <button class="btn" id="clear-storage">Clear Local Data</button></div>
+  </div>
+
+  <div class="tabs" id="tabs"></div>
+
+  <div id="sheets"></div>
+</div>
+
+<script>
+const STORAGE_KEY = 'cwm_workorder_db_v1';
+const PLANT_SEL_KEY = 'cwm_selected_plant_v1';
+
+const initialData = {
+  "plants": [
+    {"plant_id":"1","name":"Ceytra Rubber","code":"CEYTRA","address":"Horana Factory","contact":"011-1234567"},
+    {"plant_id":"2","name":"Ceymac Rubber","code":"CEYMAC","address":"Horana Factory","contact":"011-2345678"},
+    {"plant_id":"3","name":"Scan Jumbo Peanut Plant","code":"SCAN-JUMBO","address":"Nathupana","contact":"011-3456789"},
+    {"plant_id":"4","name":"KVC","code":"KVC","address":"Nathupana","contact":"011-4567890"},
+    {"plant_id":"5","name":"Delish","code":"DELISH","address":"Nathupana","contact":"011-5678901"},
+    {"plant_id":"6","name":"Scan Water Bottle Plant","code":"SCAN-WB","address":"Nathupana","contact":"011-6789012"}
+  ],
+  "assets":[
+    {"asset_id":"1","plant_id":"1","asset_tag":"ASSET-001","name":"Banbury Mixer","model":"BX-200","manufacturer":"ACME","location":"Line A","criticality":"5"},
+    {"asset_id":"2","plant_id":"2","asset_tag":"ASSET-002","name":"Rubber Extruder","model":"RE-500","manufacturer":"Hitech","location":"Line B","criticality":"4"}
+  ],
+  "suppliers":[
+    {"supplier_id":"1","name":"Industrial Supplies Ltd","contact_person":"Ruwan","phone":"0771234567","email":"info@indsup.lk"},
+    {"supplier_id":"2","name":"TechParts Pvt Ltd","contact_person":"Suresh","phone":"0779876543","email":"sales@techparts.lk"}
+  ],
+  "parts":[
+    {"part_id":"1","sku":"PART-001","description":"Hydraulic Filter","unit":"pcs","reorder_level":"5","on_hand":"12","location":"Store A","supplier_id":"1"},
+    {"part_id":"2","sku":"PART-002","description":"Bearing 6205","unit":"pcs","reorder_level":"10","on_hand":"25","location":"Store B","supplier_id":"2"}
+  ],
+  "users":[
+    {"user_id":"1","plant_id":"1","full_name":"Manoj Silva","email":"manoj@cwm.lk","role":"planner"},
+    {"user_id":"2","plant_id":"3","full_name":"Nuwan Perera","email":"nuwan@cwm.lk","role":"technician"}
+  ],
+  "work_orders":[
+    {"wo_id":"1","plant_id":"1","asset_id":"1","created_by":"1","assigned_to":"2","type":"reactive","priority":"high","status":"open","description":"Mixer overheating issue"},
+    {"wo_id":"2","plant_id":"3","asset_id":"2","created_by":"1","assigned_to":"2","type":"pm","priority":"medium","status":"closed","description":"Monthly lubrication check"}
+  ],
+  "pm_plans":[
+    {"pm_id":"1","plant_id":"2","asset_id":"2","name":"Gearbox Oil Change","frequency_type":"monthly","frequency_value":"1","next_due":"2025-11-01"},
+    {"pm_id":"2","plant_id":"1","asset_id":"1","name":"Bearing Inspection","frequency_type":"weekly","frequency_value":"1","next_due":"2025-10-28"}
+  ],
+  "work_order_parts":[
+    {"id":"1","wo_id":"1","part_id":"1","qty":"2","issued":"true"},
+    {"id":"2","wo_id":"2","part_id":"2","qty":"1","issued":"false"}
+  ],
+  "labor_entries":[
+    {"labor_id":"1","wo_id":"1","user_id":"2","start_ts":"2025-10-21 08:00","end_ts":"2025-10-21 10:00","hours":"2.0","notes":"Replaced filter and tested"},
+    {"labor_id":"2","wo_id":"2","user_id":"2","start_ts":"2025-10-20 09:00","end_ts":"2025-10-20 10:30","hours":"1.5","notes":"Lubrication completed"}
+  ]
+};
+
+let db = loadDB();
+let currentPlant = loadSelectedPlant() || 'all';
+updateStorageInfo();
+
+function loadDB(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(raw){
+      return JSON.parse(raw);
+    } else {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(initialData));
+      return JSON.parse(JSON.stringify(initialData));
+    }
+  } catch(e){
+    console.error('load error', e);
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(initialData));
+    return JSON.parse(JSON.stringify(initialData));
+  }
+}
+function loadSelectedPlant(){
+  return localStorage.getItem(PLANT_SEL_KEY) || 'all';
+}
+function saveSelectedPlant(val){
+  localStorage.setItem(PLANT_SEL_KEY, val);
+  currentPlant = val;
+}
+function saveDB(){
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+  updateStorageInfo();
+  showToast('Saved to LocalStorage');
+}
+function resetToSeed(){
+  if(!confirm('Reset data to original sample? This will overwrite current local changes.')) return;
+  db = JSON.parse(JSON.stringify(initialData));
+  saveDB();
+  renderSheet(currentSheet);
+}
+function exportSheetCSV(sheetName){
+  const arr = filteredRowsForSheet(sheetName);
+  const keys = arr.length ? Object.keys(arr[0]) : [];
+  let csv = keys.join(',') + '\n';
+  for(const r of arr){
+    csv += keys.map(k=>`"${String(r[k]===undefined?'':r[k]).replace(/"/g,'""')}"`).join(',') + '\n';
+  }
+  const blob = new Blob([csv], {type:'text/csv'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = sheetName + '.csv';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+function importCSVtoSheet(sheetName, file){
+  const reader = new FileReader();
+  reader.onload = function(e){
+    const text = e.target.result;
+    const lines = text.split(/\r?\n/).filter(Boolean);
+    if(lines.length < 1) { alert('Empty file'); return; }
+    const headers = parseCSVLine(lines[0]);
+    const rows = [];
+    for(let i=1;i<lines.length;i++){
+      const vals = parseCSVLine(lines[i]);
+      const obj = {};
+      headers.forEach((h,idx)=> obj[h] = vals[idx] === undefined ? '' : vals[idx]);
+      rows.push(obj);
+    }
+    db[sheetName] = rows;
+    saveDB();
+    renderSheet(sheetName);
+  };
+  reader.readAsText(file);
+}
+function parseCSVLine(line){
+  const re = /(?:"((?:[^"]|"")*)"|([^,]+)|)(?:,|$)/g;
+  const res = [];
+  line = line.trim();
+  let m;
+  while((m = re.exec(line)) !== null){
+    if(m[1] !== undefined) res.push(m[1].replace(/""/g,'"'));
+    else if(m[2] !== undefined) res.push(m[2]);
+    else res.push('');
+    if(re.lastIndex >= line.length) break;
+  }
+  return res;
+}
+function showToast(msg){
+  const t = document.createElement('div');
+  t.textContent = msg;
+  t.style.position='fixed';
+  t.style.right='20px';
+  t.style.bottom='20px';
+  t.style.padding='10px 14px';
+  t.style.background='rgba(15,23,42,0.9)';
+  t.style.color='white';
+  t.style.borderRadius='8px';
+  t.style.zIndex=9999;
+  document.body.appendChild(t);
+  setTimeout(()=> t.remove(), 1800);
+}
+
+// helpers to find plant for asset or work order
+function getAssetPlant(asset_id){
+  if(!asset_id) return null;
+  const a = db.assets.find(x=>x.asset_id === String(asset_id));
+  return a ? a.plant_id : null;
+}
+function getWOPlant(wo_id){
+  const w = db.work_orders.find(x=>x.wo_id === String(wo_id));
+  return w ? w.plant_id : null;
+}
+
+// decide if a row should show under currentPlant
+function rowMatchesPlant(sheetName, row){
+  if(currentPlant === 'all') return true;
+  // direct plant_id field
+  if(row.plant_id && String(row.plant_id) === String(currentPlant)) return true;
+  // asset -> plant
+  if(row.asset_id){
+    const p = getAssetPlant(row.asset_id);
+    if(p && String(p) === String(currentPlant)) return true;
+  }
+  // work_order_parts -> check work order's plant
+  if(sheetName === 'work_order_parts' && row.wo_id){
+    const p = getWOPlant(row.wo_id);
+    if(p && String(p) === String(currentPlant)) return true;
+  }
+  // labor_entries -> check work order's plant
+  if(sheetName === 'labor_entries' && row.wo_id){
+    const p = getWOPlant(row.wo_id);
+    if(p && String(p) === String(currentPlant)) return true;
+  }
+  // users -> filter by user.plant_id
+  if(sheetName === 'users' && row.plant_id && String(row.plant_id) === String(currentPlant)) return true;
+  // parts: show parts used by the plant (via work_order_parts)
+  if(sheetName === 'parts'){
+    // find any work_order_parts that reference this part and whose wo belongs to currentPlant
+    const relatedWOP = db.work_order_parts.find(wp=>{
+      if(String(wp.part_id) !== String(row.part_id)) return false;
+      const p = getWOPlant(wp.wo_id);
+      return p && String(p) === String(currentPlant);
+    });
+    if(relatedWOP) return true;
+    // otherwise hide parts when filtering by plant
+    return false;
+  }
+  return false;
+}
+
+function filteredRowsForSheet(sheetName){
+  const arr = db[sheetName] || [];
+  if(currentPlant === 'all') return arr;
+  return arr.filter(r => rowMatchesPlant(sheetName, r));
+}
+
+// render UI
+const tabsEl = document.getElementById('tabs');
+const sheetsEl = document.getElementById('sheets');
+let currentSheet = Object.keys(db)[0];
+
+function populatePlantSelect(){
+  const sel = document.getElementById('plant-select');
+  sel.innerHTML = '';
+  const optAll = document.createElement('option');
+  optAll.value = 'all';
+  optAll.text = 'All Plants';
+  sel.appendChild(optAll);
+  db.plants.forEach(p=>{
+    const o = document.createElement('option');
+    o.value = p.plant_id;
+    o.text = p.name;
+    sel.appendChild(o);
+  });
+  sel.value = currentPlant || 'all';
+  sel.onchange = ()=>{
+    saveSelectedPlant(sel.value);
+    renderSheet(currentSheet);
+  };
+}
+populatePlantSelect();
+
+Object.keys(db).forEach((k,i)=>{
+  const btn = document.createElement('button');
+  btn.className = 'tab' + (i===0 ? ' active' : '');
+  btn.innerText = k.replace(/_/g,' ');
+  btn.onclick = ()=>{
+    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    btn.classList.add('active');
+    renderSheet(k);
+  };
+  tabsEl.appendChild(btn);
+});
+
+function renderSheet(name){
+  currentSheet = name;
+  const rows = filteredRowsForSheet(name);
+  const keys = rows.length ? Object.keys(rows[0]) : (db[name] && db[name].length ? Object.keys(db[name][0]) : []);
+  let html = '';
+  html += '<div class="sheet">';
+  html += '<div class="toolbar">';
+  html += '<div class="controls"><button class="btn primary" onclick="addRow(currentSheet)">Add row</button>';
+  html += '<button class="btn" onclick="deleteSelectedRow()">Delete selected</button>';
+  html += '<button class="btn" onclick="resetToSeed()">Reset sample</button>';
+  html += '<button class="btn" onclick="saveDB()">Save</button></div>';
+  html += '<div class="controls" style="margin-left:auto;">';
+  html += '<label class="small">Export:</label> <button class="btn" onclick="exportSheetCSV(\''+name+'\')">CSV</button>';
+  html += '<label class="small" style="margin-left:6px">Import CSV:</label> <input type="file" id="import-file" style="display:inline-block" accept=".csv" onchange="handleImport(event,\''+name+'\')">';
+  html += '</div></div>';
+  html += '<div class="small">Tip: double-click a cell to edit. Click a row to select it. Edits auto-save. Current plant filter: <strong>' + (currentPlant==='all' ? 'All Plants' : (db.plants.find(p=>p.plant_id===currentPlant)?.name || currentPlant)) + '</strong></div>';
+  html += '<div style="overflow:auto;margin-top:8px;"><table id="tbl-'+name+'"><thead><tr>';
+  // header
+  if(keys.length === 0){
+    html += '<th>No columns</th>';
+  } else {
+    html += keys.map(k=>`<th>${k}</th>`).join('');
+  }
+  html += '</tr></thead><tbody>';
+  for(let r=0;r<rows.length;r++){
+    const row = rows[r];
+    html += '<tr data-row="'+r+'">';
+    if(keys.length === 0){
+      html += '<td></td>';
+    } else {
+      for(const k of keys){
+        const val = row[k] === undefined ? '' : row[k];
+        html += `<td contenteditable="true" data-col="${k}" oninput="cellEditedFiltered(this)" data-original-index="${getOriginalRowIndex(name, row)}">${escapeHtml(val)}</td>`;
+      }
+    }
+    html += '</tr>';
+  }
+  html += '</tbody></table></div></div>';
+  sheetsEl.innerHTML = html;
+
+  // row selection
+  const trs = sheetsEl.querySelectorAll('tbody tr');
+  trs.forEach(tr=>{
+    tr.onclick = (e)=>{
+      if(e.target && e.target.tagName === 'TD') {
+        sheetsEl.querySelectorAll('tbody tr').forEach(t=>t.style.background='');
+        tr.style.background = '#f1f5f9';
+        tr.setAttribute('data-selected','true');
+      }
+    };
+  });
+  updateStorageInfo();
+}
+
+// when filtering we need to know original index in db to update correct row
+function getOriginalRowIndex(sheetName, filteredRow){
+  const arr = db[sheetName] || [];
+  for(let i=0;i<arr.length;i++){
+    // compare by unique id fields if present
+    const keys = Object.keys(filteredRow);
+    let match = true;
+    for(const k of keys){
+      if(String(arr[i][k] || '') !== String(filteredRow[k] || '')) { match = false; break; }
+    }
+    if(match) return i;
+  }
+  // fallback: return last index
+  return db[sheetName] ? db[sheetName].length - 1 : 0;
+}
+
+function escapeHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+window.cellEditedFiltered = function(td){
+  const rowEl = td.closest('tr');
+  const rowIdxFiltered = Number(rowEl.getAttribute('data-row'));
+  const col = td.getAttribute('data-col');
+  const text = td.innerText;
+  // find original index in full db
+  const origIdx = Number(td.getAttribute('data-original-index'));
+  if(!db[currentSheet]) db[currentSheet] = [];
+  if(!db[currentSheet][origIdx]) {
+    // if original row missing (shouldn't happen), append
+    db[currentSheet].push({});
+  }
+  db[currentSheet][origIdx][col] = text;
+  saveDB();
+};
+
+window.addRow = function(sheetName){
+  const keys = (db[sheetName] && db[sheetName].length) ? Object.keys(db[sheetName][0]) : [];
+  const newRow = {};
+  keys.forEach(k=> newRow[k]='');
+  // if adding while filtered to a plant, set plant_id if column exists
+  if(currentPlant !== 'all' && keys.includes('plant_id')) newRow['plant_id'] = currentPlant;
+  db[sheetName].push(newRow);
+  saveDB();
+  renderSheet(sheetName);
+  showToast('Row added');
+};
+
+window.deleteSelectedRow = function(){
+  const tbody = sheetsEl.querySelector('tbody');
+  if(!tbody) return alert('No table loaded');
+  const selected = tbody.querySelector('tr[data-selected="true"]');
+  if(!selected) return alert('Select a row first (click the row).');
+  const idxFiltered = Number(selected.getAttribute('data-row'));
+  // determine original index
+  const td = selected.querySelector('td');
+  const origIdx = Number(td ? td.getAttribute('data-original-index') : -1);
+  if(!confirm('Delete selected row?')) return;
+  if(origIdx >= 0 && db[currentSheet] && db[currentSheet][origIdx]) {
+    db[currentSheet].splice(origIdx,1);
+  } else {
+    // fallback: remove filtered index by searching matching row
+    const rows = filteredRowsForSheet(currentSheet);
+    const row = rows[idxFiltered];
+    const orig = db[currentSheet].findIndex(r=> JSON.stringify(r) === JSON.stringify(row));
+    if(orig >= 0) db[currentSheet].splice(orig,1);
+  }
+  saveDB();
+  renderSheet(currentSheet);
+  showToast('Row deleted');
+};
+
+window.handleImport = function(ev, sheetName){
+  const file = ev.target.files[0];
+  if(!file) return;
+  importCSVtoSheet(sheetName, file);
+  ev.target.value = '';
+};
+
+function updateStorageInfo(){
+  let used = 0;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY) || '';
+    used = raw.length;
+  } catch(e){ used = 0; }
+  const kb = Math.round(used/1024);
+  const el = document.getElementById('storage-info');
+  el.textContent = kb + ' KB';
+}
+
+// clear storage button
+document.getElementById('clear-storage').onclick = ()=>{
+  if(!confirm('Clear all local data? This will remove saved edits and reset to sample on reload.')) return;
+  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(PLANT_SEL_KEY);
+  location.reload();
+};
+
+// initial render
+renderSheet(currentSheet);
+
+// expose for console
+window._db = db;
+window._save = saveDB;
+window._reset = resetToSeed;
+window._currentPlant = () => currentPlant;
+
+</script>
+</body>
+</html>
